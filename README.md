@@ -1,223 +1,98 @@
-# NestJS API — portfolio
+# NestJS API (portfolio)
 
-A compact, production-shaped [NestJS](https://nestjs.com/) API for my portfolio: validated configuration, PostgreSQL **or** MongoDB, JWT with role-based access, OpenAPI, health checks, rate limiting, and CI that runs the same Docker flows you can run locally.
+Small [NestJS](https://nestjs.com/) API I keep around as a portfolio piece: env validation, Postgres or Mongo, JWT with roles, Swagger, health checks, rate limits, and a Docker-based check you can run the same way CI does.
 
----
+**Stack:** Node 16 (see [`.nvmrc`](.nvmrc)), Nest 9, TypeScript 4.7, TypeORM 0.3 or Mongoose 6, Jest 28.
 
-## At a glance
-
-| Topic | Details |
-|-------|---------|
-| **Runtime** | Node.js **16** ([`.nvmrc`](.nvmrc)), npm **8+** (`engines` in [`package.json`](package.json)) |
-| **Framework** | NestJS **9.0.3**, TypeScript **4.7**, Jest **28** |
-| **Data** | TypeORM **0.3.7** + PostgreSQL, or Mongoose **6** + MongoDB |
-| **Security / API** | Helmet **5**, Passport JWT, URI versioning (`v1`), Swagger **6** at `/docs` (non-production) |
-| **Ops** | Terminus **9**, `@nestjs/throttler` **v3** (global **200 req / 60s**; login **5 / 60s**), GitHub Actions |
-
----
-
-## Table of contents
-
-1. [Features](#features)
-2. [Prerequisites](#prerequisites)
-3. [Quick start](#quick-start)
-4. [Configuration](#configuration)
-5. [Scripts](#scripts)
-6. [Database seeds](#database-seeds)
-7. [HTTP API](#http-api)
-8. [Docker E2E](#docker-e2e)
-9. [Project layout](#project-layout)
-10. [Develop and verify](#develop-and-verify)
-11. [CI](#ci)
-
----
-
-## Features
-
-- **Config:** `@nestjs/config` with typed factories and `class-validator` on env-backed settings.
-- **Persistence:** Flip `DATABASE_TYPE` for relational vs document; users go through a repository-style layer.
-- **Auth:** JWT, `admin` / `user` roles, global JWT guard, `@Public()` to opt out.
-- **HTTP:** Global `ValidationPipe`, optional CORS from `CORS_ORIGIN`, Helmet on every request.
-- **Rate limits:** Throttler v3 uses **`ttl` in seconds** — app-wide window matches the table above; login uses `@Throttle(5, 60)`.
-- **Observability:** Terminus checks (memory heap, disk), structured logging hook-up in `main.ts`.
-
-Compose files use current PostgreSQL and MongoDB images for CI and local E2E runs.
-
----
-
-## Prerequisites
-
-- **Node.js 16.x** — use `nvm use` if you rely on [`.nvmrc`](.nvmrc) (`16.20.2`).
-- **npm 8+**
-- **Docker** — only for [Docker E2E](#docker-e2e) below.
-
----
-
-## Quick start
+## Run it
 
 ```bash
 npm install
-cp env-example-relational .env   # PostgreSQL + TypeORM
-# cp env-example-document .env   # MongoDB + Mongoose
+cp env-example-relational .env   # or env-example-document for Mongo
 npm run start:dev
 ```
 
-With the sample env, the server listens on **port 3000**.
-
-| What | URL |
-|------|-----|
-| Root health (no API prefix) | [http://localhost:3000/](http://localhost:3000/) |
-| Swagger | [http://localhost:3000/docs](http://localhost:3000/docs) |
-
-Sanity check:
-
-```bash
-curl -s http://localhost:3000/
-```
-
-Expect JSON including `status: ok`.
-
----
+Defaults: port **3000**, Swagger at [http://localhost:3000/docs](http://localhost:3000/docs), bare health at [http://localhost:3000/](http://localhost:3000/) (`GET /` sits outside the `API_PREFIX`).
 
 ## Configuration
 
-Copy the template that matches your database to `.env`, then **rotate secrets** (`AUTH_JWT_SECRET`, `SEED_USER_PASSWORD`, DB passwords) before any shared environment.
+Copy [`env-example-relational`](env-example-relational) or [`env-example-document`](env-example-document) to `.env` and change secrets before you seed or deploy anywhere real (`AUTH_JWT_SECRET`, `SEED_USER_PASSWORD`, DB passwords).
 
-| File | Use case |
-|------|----------|
-| [`env-example-relational`](env-example-relational) | PostgreSQL + TypeORM |
-| [`env-example-document`](env-example-document) | MongoDB + Mongoose |
+| Variable | What it does |
+|----------|----------------|
+| `NODE_ENV` | `production` turns off Swagger |
+| `APP_PORT` | HTTP port |
+| `API_PREFIX` | e.g. `api`; root `GET /` stays unprefixed |
+| `CORS_ORIGIN` | CORS; `*` is fine locally |
+| `SEED_USER_PASSWORD` | Used by seed scripts |
+| `AUTH_JWT_SECRET` | JWT signing secret (examples need 32+ chars) |
+| `AUTH_JWT_TOKEN_EXPIRES_IN` | e.g. `1d` |
 
-### Core variables
-
-| Variable | Role |
-|----------|------|
-| `NODE_ENV` | `development` or `production` (Swagger disabled in production) |
-| `APP_PORT` | HTTP listen port |
-| `API_PREFIX` | Global prefix (e.g. `api`). **`GET /` is excluded** so you keep a bare root health check |
-| `CORS_ORIGIN` | CORS origin(s); `*` is fine for local experiments |
-| `SEED_USER_PASSWORD` | Password used when running seed scripts |
-| `AUTH_JWT_SECRET` | JWT signing secret (examples enforce **≥ 32** characters) |
-| `AUTH_JWT_TOKEN_EXPIRES_IN` | Token TTL (e.g. `1d`) |
-
-### Database
-
-- **Relational:** set `DATABASE_TYPE` and host, port, credentials, database name; optional `DATABASE_SYNCHRONIZE`, `DATABASE_URL`.
-- **Document:** set Mongo-related fields per the document example, including `DATABASE_URL`.
-
----
+Relational: set `DATABASE_TYPE` and connection fields (optional `DATABASE_URL`, `DATABASE_SYNCHRONIZE`). Document: follow the Mongo fields in the example file.
 
 ## Scripts
 
-| Command | Purpose |
-|---------|---------|
-| `npm run start:dev` | Dev server with watch |
-| `npm run start:debug` | Dev server with debugger |
-| `npm run start:prod` | Run compiled `dist/main.js` |
-| `npm run build` | Compile to `dist/` |
-| `npm run format` | Prettier on `src/` and `test/` |
-| `npm run lint` | ESLint |
-| `npm test` | Jest unit tests |
-| `npm run test:watch` | Jest watch mode |
-| `npm run test:cov` | Jest with coverage |
-| `npm run seed:run:relational` | Seed PostgreSQL |
-| `npm run seed:run:document` | Seed MongoDB |
-| `npm run migration:generate` | Generate TypeORM migration |
-| `npm run migration:run` / `npm run migration:revert` | Apply or revert migrations |
+| Command | |
+|---------|--|
+| `npm run start:dev` / `start:debug` / `start:prod` | Dev, debug, or production |
+| `npm run build` | `dist/` |
+| `npm run format` / `npm run lint` | Prettier / ESLint |
+| `npm test` / `test:watch` / `test:cov` | Jest |
+| `npm run seed:run:relational` / `seed:run:document` | Seeds |
+| `npm run migration:*` | TypeORM migrations (relational) |
 
----
+Seeds read `SEED_USER_PASSWORD` from `.env` (examples use `ChangeMe_BeforeSeeding!`). Seeded logins: `admin@example.com` and `user@example.com`.
 
-## Database seeds
+## HTTP routes
 
-```bash
-npm run seed:run:relational
-# or
-npm run seed:run:document
-```
+With `APP_PORT=3000` and `API_PREFIX=api`:
 
-Seeded accounts use `SEED_USER_PASSWORD` from `.env` (examples use `ChangeMe_BeforeSeeding!` until you change it).
+| Route | |
+|-------|--|
+| `GET /` | Small JSON health |
+| `GET /api/v1/health` | Terminus |
+| `POST /api/v1/auth/email/login` | Login (tighter rate limit) |
+| `GET /api/v1/auth/me` | Bearer JWT |
+| `GET/POST /api/v1/users` | List / create — admin |
+| `GET /docs` | Swagger when not production |
 
-| Role | Email |
-|------|-------|
-| Admin | `admin@example.com` |
-| User | `user@example.com` |
+## Docker
 
----
+Same compose files as in CI. Relational path runs migrations, then seeds, then starts the app and hits a few endpoints ([`startup.relational.ci.sh`](startup.relational.ci.sh)). Document path is similar without relational migrations ([`startup.document.ci.sh`](startup.document.ci.sh)).
 
-## HTTP API
-
-Assume `APP_PORT=3000` and `API_PREFIX=api`.
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /` | Minimal health JSON (outside prefix) |
-| `GET /api/v1/health` | Terminus (heap + disk) |
-| `POST /api/v1/auth/email/login` | Login (stricter throttle) |
-| `GET /api/v1/auth/me` | Current user — header `Authorization: Bearer <jwt>` |
-| `GET /api/v1/users` | Paginated list — **admin** |
-| `POST /api/v1/users` | Create user — **admin** |
-| `GET /docs` | Swagger UI when not in production |
-
----
-
-## Docker E2E
-
-Same compose definitions as CI: build images, then **relational** flow runs TypeORM **migrations** and seeds (document mode only seeds), then `start:prod`, lint, and HTTP smoke tests — see [`startup.relational.ci.sh`](startup.relational.ci.sh) and [`startup.document.ci.sh`](startup.document.ci.sh). Requires the Docker daemon.
-
-**PostgreSQL**
+PostgreSQL:
 
 ```bash
 docker compose -f docker-compose.relational.ci.yaml --env-file env-example-relational up --build --exit-code-from api
 ```
 
-**MongoDB**
+MongoDB:
 
 ```bash
 docker compose -f docker-compose.document.ci.yaml --env-file env-example-document up --build --exit-code-from api
 ```
 
-CI uses `-p ci-relational` / `-p ci-document` to avoid project name clashes; add the same `-p` locally if you run both stacks on one machine.
+If you run both on one machine, add `-p ci-relational` or `-p ci-document` like CI does so names don’t clash.
 
----
-
-## Project layout
+## Layout
 
 ```
 src/
-├── auth/           # Login, JWT strategies
-├── users/          # REST + relational / document persistence
-├── health/         # Terminus controller
-├── database/       # DataSource, migrations, seeds
-├── config/         # App config types and loading
-├── roles/          # RBAC decorators and guard
-└── common/         # Guards, filters, logging, DTOs, middleware
+├── auth/       # JWT login, strategies
+├── users/      # REST + persistence (relational or document)
+├── health/     # Terminus
+├── database/   # data source, migrations, seeds
+├── config/
+├── roles/
+└── common/     # guards, filters, logging, DTOs, middleware
 ```
 
-[`src/main.ts`](src/main.ts) registers the global prefix (with `/` excluded), URI versioning, Swagger, Helmet, and pipes.
+Wiring lives in [`src/main.ts`](src/main.ts): prefix, versioning, Swagger, Helmet, pipes.
 
----
+## Tests and CI
 
-## Develop and verify
+From a clean tree: `npm ci`, then `npm run build`, `npm run lint`, `npm test`. Jest picks up `*.spec.ts` next to sources; shared setup in [`test/setup-tests.ts`](test/setup-tests.ts).
 
-```bash
-nvm use                    # optional; reads .nvmrc
-rm -rf node_modules && npm ci
-npm run build && npm run lint && npm test && npm run test:cov
-```
+`package.json` asks for Node 16; if you use something newer, `npm` might warn (`EBADENGINE`) unless you turn on `engine-strict`.
 
-**Node version:** [`package.json`](package.json) declares Node **16** in `engines`. Running `npm ci` on a newer Node version may show **`EBADENGINE`**; installs still succeed unless `engine-strict` is enabled. CI uses Node 16.
-
-**Tests:** Specs live as `*.spec.ts` beside sources; shared Jest setup is [`test/setup-tests.ts`](test/setup-tests.ts).
-
----
-
-## CI
-
-Workflow: [`.github/workflows/docker-e2e.yml`](.github/workflows/docker-e2e.yml)
-
-| Job | Steps |
-|-----|--------|
-| **verify** | `npm ci`, `npm run build`, `npm run lint` on Node 16 |
-| **e2e** | Matrix over **relational** and **document** Docker Compose (build, seed, `start:prod`, lint, HTTP checks) |
-
-Runs on **pull_request** to **`main`** and **`master`** (not on direct pushes).
+GitHub Actions ([`.github/workflows/docker-e2e.yml`](.github/workflows/docker-e2e.yml)) runs on **pull requests** to `main` or `master`: install, build, lint, then Docker compose for relational and document. Pushes alone don’t trigger it.
